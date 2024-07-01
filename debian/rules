@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+
+NAME = cec-daemon
+DEST_DIR = debian/$(NAME)
+ROOT_DIR = "$(abspath $(lastword $(MAKEFILE_LIST))/../..)"
+
+%:
+	dh $@
+
+override_dh_install:
+	mkdir -p $(DEST_DIR)/etc/init.d/ $(DEST_DIR)/usr/bin/
+	cp -r $(ROOT_DIR)/sys-v/cec $(DEST_DIR)/etc/init.d/
+	cp -r $(ROOT_DIR)/cec-daemon $(DEST_DIR)/usr/bin/
+	dh_install

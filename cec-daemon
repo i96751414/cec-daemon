@@ -1,0 +1,236 @@
+#!/usr/bin/python
+
+import logging
+import time
+from collections import namedtuple
+from threading import Lock
+
+import cec
+import uinput
+
+Key = namedtuple("Key", ("key", "multi_press"))
+
+
+# https://github.com/Pulse-Eight/libcec/blob/master/include/cectypes.h
+class CECUserControlCode:
+    SELECT = 0x00
+    UP = 0x01
+    DOWN = 0x02
+    LEFT = 0x03
+    RIGHT = 0x04
+    RIGHT_UP = 0x05
+    RIGHT_DOWN = 0x06
+    LEFT_UP = 0x07
+    LEFT_DOWN = 0x08
+    ROOT_MENU = 0x09
+    SETUP_MENU = 0x0A
+    CONTENTS_MENU = 0x0B
+    FAVORITE_MENU = 0x0C
+    EXIT = 0x0D
+    # reserved: 0x0E, 0x0F
+    TOP_MENU = 0x10
+    DVD_MENU = 0x11
+    # reserved: 0x12 ... 0x1C
+    NUMBER_ENTRY_MODE = 0x1D
+    NUMBER11 = 0x1E
+    NUMBER12 = 0x1F
+    NUMBER0 = 0x20
+    NUMBER1 = 0x21
+    NUMBER2 = 0x22
+    NUMBER3 = 0x23
+    NUMBER4 = 0x24
+    NUMBER5 = 0x25
+    NUMBER6 = 0x26
+    NUMBER7 = 0x27
+    NUMBER8 = 0x28
+    NUMBER9 = 0x29
+    DOT = 0x2A
+    ENTER = 0x2B
+    CLEAR = 0x2C
+    NEXT_FAVORITE = 0x2F
+    CHANNEL_UP = 0x30
+    CHANNEL_DOWN = 0x31
+    PREVIOUS_CHANNEL = 0x32
+    SOUND_SELECT = 0x33
+    INPUT_SELECT = 0x34
+    DISPLAY_INFORMATION = 0x35
+    HELP = 0x36
+    PAGE_UP = 0x37
+    PAGE_DOWN = 0x38
+    # reserved: 0x39 ... 0x3F
+    POWER = 0x40
+    VOLUME_UP = 0x41
+    VOLUME_DOWN = 0x42
+    MUTE = 0x43
+    PLAY = 0x44
+    STOP = 0x45
+    PAUSE = 0x46
+    RECORD = 0x47
+    REWIND = 0x48
+    FAST_FORWARD = 0x49
+    EJECT = 0x4A
+    FORWARD = 0x4B
+    BACKWARD = 0x4C
+    STOP_RECORD = 0x4D
+    PAUSE_RECORD = 0x4E
+    # reserved: 0x4F
+    ANGLE = 0x50
+    SUB_PICTURE = 0x51
+    VIDEO_ON_DEMAND = 0x52
+    ELECTRONIC_PROGRAM_GUIDE = 0x53
+    TIMER_PROGRAMMING = 0x54
+    INITIAL_CONFIGURATION = 0x55
+    SELECT_BROADCAST_TYPE = 0x56
+    SELECT_SOUND_PRESENTATION = 0x57
+    # reserved: 0x58 ... 0x5F
+    PLAY_FUNCTION = 0x60
+    PAUSE_PLAY_FUNCTION = 0x61
+    RECORD_FUNCTION = 0x62
+    PAUSE_RECORD_FUNCTION = 0x63
+    STOP_FUNCTION = 0x64
+    MUTE_FUNCTION = 0x65
+    RESTORE_VOLUME_FUNCTION = 0x66
+    TUNE_FUNCTION = 0x67
+    SELECT_MEDIA_FUNCTION = 0x68
+    SELECT_AV_INPUT_FUNCTION = 0x69
+    SELECT_AUDIO_INPUT_FUNCTION = 0x6A
+    POWER_TOGGLE_FUNCTION = 0x6B
+    POWER_OFF_FUNCTION = 0x6C
+    POWER_ON_FUNCTION = 0x6D
+    # reserved: 0x6E ... 0x70
+    F1_BLUE = 0x71
+    F2_RED = 0X72
+    F3_GREEN = 0x73
+    F4_YELLOW = 0x74
+    F5 = 0x75
+    DATA = 0x76
+    # reserved: 0x77 ... 0xFF
+    AN_RETURN = 0x91  # return (Samsung)
+    AN_CHANNELS_LIST = 0x96  # channels list (Samsung)
+    MAX = 0x96
+    UNKNOWN = 0xFF
+
+
+class NoCECAdapters(Exception):
+    pass
+
+
+class Bindings(object):
+    MAPPING = {}
+
+    def map_to_key(self, cec_code):
+        return self.MAPPING.get(cec_code)
+
+    def cec_keys(self):
+        return tuple(self.MAPPING.keys())
+
+    def mapping_keys(self):
+        return tuple(set(k.key for k in self.MAPPING.values()))
+
+
+class DefaultBindings(Bindings):
+    MAPPING = {
+        CECUserControlCode.SELECT: Key(uinput.KEY_ENTER, False),
+        CECUserControlCode.UP: Key(uinput.KEY_UP, True),
+        CECUserControlCode.DOWN: Key(uinput.KEY_DOWN, True),
+        CECUserControlCode.LEFT: Key(uinput.KEY_LEFT, True),
+        CECUserControlCode.RIGHT: Key(uinput.KEY_RIGHT, True),
+        CECUserControlCode.EXIT: Key(uinput.KEY_BACKSPACE, False)
+    }
+
+
+class CECDaemon(object):
+    def __init__(self, bindings=DefaultBindings(), button_repeat_rate_ms=0, button_release_delay_ms=0,
+                 double_tap_timeout_ms=200):
+        self._lock = Lock()
+        self._cec_config = cec.libcec_configuration()
+        self._cec_config.strDeviceName = "pyLibCec"
+        self._cec_config.bActivateSource = 0
+        self._cec_config.deviceTypes.Add(cec.CEC_DEVICE_TYPE_RECORDING_DEVICE)
+        self._cec_config.clientVersion = cec.LIBCEC_VERSION_CURRENT
+        self._cec_config.iButtonRepeatRateMs = self._button_repeat_rate_ms = button_repeat_rate_ms
+        self._cec_config.iButtonReleaseDelayMs = button_release_delay_ms
+        self._cec_config.iDoubleTapTimeoutMs = double_tap_timeout_ms
+        self._cec_config.SetKeyPressCallback(self._keypress_handler)
+        self._cec_adapter = None
+        self._keyboard = None
+        self._bindings = bindings
+        self._last_key = None
+
+    def _keypress_handler(self, cec_code, duration):
+        logging.debug("message='received key event', cec_code=%d, duration=%d", cec_code, duration)
+        key = self._bindings.map_to_key(cec_code)
+        if key is not None and (self._button_repeat_rate_ms != 0 or duration == 0) and (
+                key.multi_press or key != self._last_key):
+            # Repeat rate set to 0 is a special case:
+            # A single click produces 2 entries, one with 0 duration and another with duration > 0.
+            # Long clicks produce multiple 0 duration entries.
+            # When repeat rate is set, short clicks always have duration 0 and long clicks produce
+            # events at the set rate with the duration starting from 0 and increasing until the button is released.
+            self._keyboard.emit_click(key.key)
+            self._last_key = key
+
+    def _keyboard_init(self):
+        if self._keyboard is None:
+            self._keyboard = uinput.Device(self._bindings.mapping_keys())
+        else:
+            logging.warning("message='keyboard device already initialised'")
+
+    def _keyboard_destroy(self):
+        if self._keyboard is not None:
+            logging.debug("message='destroying keyboard device'")
+            self._keyboard.destroy()
+            self._keyboard = None
+
+    def _cec_init(self):
+        if self._cec_adapter is None:
+            cec_adapter = cec.ICECAdapter.Create(self._cec_config)
+            adapters = cec_adapter.DetectAdapters()
+
+            if len(adapters) == 0:
+                raise NoCECAdapters("No CEC adapters found")
+
+            for adapter in adapters:
+                logging.debug("message='found a CEC adapter', port='%s', vendor=%x, product=%x",
+                              adapter.strComName, adapter.iVendorId, adapter.iProductId)
+
+            logging.debug("message='Starting CEC daemon'")
+            cec_adapter.Open(adapters[0].strComName)
+            self._cec_adapter = cec_adapter
+        else:
+            logging.warning("message='CEC daemon already started'")
+
+    def _cec_destroy(self):
+        if self._cec_adapter is not None:
+            logging.debug("message='stopping CEC daemon'")
+            self._cec_adapter.Close()
+            self._cec_adapter = None
+
+    def start(self):
+        with self._lock:
+            self._keyboard_init()
+            self._cec_init()
+
+    def stop(self):
+        with self._lock:
+            self._keyboard_destroy()
+            self._cec_destroy()
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
+        return False
+
+
+def main():
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
+    with CECDaemon():
+        time.sleep(120)
+        logging.info("message='Closing'")
+
+
+if __name__ == "__main__":
+    main()

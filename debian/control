@@ -1,0 +1,13 @@
+Source: cec-daemon
+Section: utils
+Priority: optional
+Maintainer: i96751414 <i96751414@gmail.com>
+Build-Depends: debhelper (>= 9)
+Homepage: https://github.com/i96751414/cec-daemon
+Vcs-Git: https://github.com/i96751414/cec-daemon.git
+
+Package: cec-daemon
+Architecture: all
+Essential: no
+Depends: python3-cec,python3-uinput
+Description: CEC daemon for translating CEC codes into key presses, allowing to control the PC through the TV.
