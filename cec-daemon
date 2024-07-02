@@ -2,6 +2,8 @@
 
 import argparse
 import logging
+import os
+import re
 import signal
 from collections import namedtuple, OrderedDict
 from threading import Lock, Event
@@ -132,12 +134,87 @@ class Bindings(object):
 class DefaultBindings(Bindings):
     MAPPING = {
         CECUserControlCode.SELECT: Key(uinput.KEY_ENTER, False),
+        CECUserControlCode.EXIT: Key(uinput.KEY_BACKSPACE, False),
         CECUserControlCode.UP: Key(uinput.KEY_UP, True),
         CECUserControlCode.DOWN: Key(uinput.KEY_DOWN, True),
         CECUserControlCode.LEFT: Key(uinput.KEY_LEFT, True),
         CECUserControlCode.RIGHT: Key(uinput.KEY_RIGHT, True),
-        CECUserControlCode.EXIT: Key(uinput.KEY_BACKSPACE, False)
     }
+
+
+class RetropieBindings(Bindings):
+    _INPUT_PLAYER1_RE = re.compile(r"""^\s*input_player1_(\w+)\s*=\s*(["'])(\w+)\2\s*$""")
+    _RETROARCH_CFG_FILE = "/opt/retropie/configs/all/retroarch.cfg"
+    _RETROARCH_TO_CEC_KEYMAP = {
+        "a": Key(CECUserControlCode.SELECT, False), "b": Key(CECUserControlCode.EXIT, False),
+        "up": Key(CECUserControlCode.UP, True), "down": Key(CECUserControlCode.DOWN, True),
+        "left": Key(CECUserControlCode.LEFT, True), "right": Key(CECUserControlCode.RIGHT, True),
+        "start": Key(CECUserControlCode.F2_RED, False), "select": Key(CECUserControlCode.F3_GREEN, False),
+    }
+    _RETROARCH_TO_UINTPUT_KEYMAP = {
+        "left": uinput.KEY_LEFT, "right": uinput.KEY_RIGHT,
+        "up": uinput.KEY_UP, "down": uinput.KEY_DOWN,
+        "enter": uinput.KEY_ENTER, "kp_enter": uinput.KEY_KPENTER,
+        "tab": uinput.KEY_TAB, "insert": uinput.KEY_INSERT,
+        "del": uinput.KEY_DELETE, "end": uinput.KEY_END,
+        "home": uinput.KEY_HOME, "rshift": uinput.KEY_RIGHTSHIFT,
+        "shift": uinput.KEY_LEFTSHIFT, "rctrl": uinput.KEY_RIGHTCTRL,
+        "ctrl": uinput.KEY_LEFTCTRL, "ralt": uinput.KEY_RIGHTALT,
+        "alt": uinput.KEY_LEFTALT, "space": uinput.KEY_SPACE,
+        "escape": uinput.KEY_ESC, "kp_minus": uinput.KEY_KPMINUS,
+        "kp_plus": uinput.KEY_KPPLUS, "f1": uinput.KEY_F1,
+        "f2": uinput.KEY_F2, "f3": uinput.KEY_F3,
+        "f4": uinput.KEY_F4, "f5": uinput.KEY_F5,
+        "f6": uinput.KEY_F6, "f7": uinput.KEY_F7,
+        "f8": uinput.KEY_F8, "f9": uinput.KEY_F9,
+        "f10": uinput.KEY_F10, "f11": uinput.KEY_F11,
+        "f12": uinput.KEY_F12, "num1": uinput.KEY_1,
+        "num2": uinput.KEY_2, "num3": uinput.KEY_3,
+        "num4": uinput.KEY_4, "num5": uinput.KEY_5,
+        "num6": uinput.KEY_6, "num7": uinput.KEY_7,
+        "num8": uinput.KEY_8, "num9": uinput.KEY_9,
+        "num0": uinput.KEY_0, "pageup": uinput.KEY_PAGEUP,
+        "pagedown": uinput.KEY_PAGEDOWN, "keypad1": uinput.KEY_KP1,
+        "keypad2": uinput.KEY_KP2, "keypad3": uinput.KEY_KP3,
+        "keypad4": uinput.KEY_KP4, "keypad5": uinput.KEY_KP5,
+        "keypad6": uinput.KEY_KP6, "keypad7": uinput.KEY_KP7,
+        "keypad8": uinput.KEY_KP8, "keypad9": uinput.KEY_KP9,
+        "keypad0": uinput.KEY_KP0, "period": uinput.KEY_DOT,
+        "capslock": uinput.KEY_CAPSLOCK, "numlock": uinput.KEY_NUMLOCK,
+        "backspace": uinput.KEY_BACKSPACE, "pause": uinput.KEY_PAUSE,
+        "scrolllock": uinput.KEY_SCROLLLOCK, "backquote": uinput.KEY_GRAVE,
+        "comma": uinput.KEY_COMMA, "minus": uinput.KEY_MINUS,
+        "slash": uinput.KEY_SLASH, "semicolon": uinput.KEY_SEMICOLON,
+        "equals": uinput.KEY_EQUAL, "backslash": uinput.KEY_BACKSLASH,
+        "kp_period": uinput.KEY_KPDOT, "kp_equals": uinput.KEY_KPEQUAL,
+        "a": uinput.KEY_A, "b": uinput.KEY_B, "c": uinput.KEY_C,
+        "d": uinput.KEY_D, "e": uinput.KEY_E, "f": uinput.KEY_F,
+        "g": uinput.KEY_G, "h": uinput.KEY_H, "i": uinput.KEY_I,
+        "j": uinput.KEY_J, "k": uinput.KEY_K, "l": uinput.KEY_L,
+        "m": uinput.KEY_M, "n": uinput.KEY_N, "o": uinput.KEY_O,
+        "p": uinput.KEY_P, "q": uinput.KEY_Q, "r": uinput.KEY_R,
+        "s": uinput.KEY_S, "t": uinput.KEY_T, "u": uinput.KEY_U,
+        "v": uinput.KEY_V, "w": uinput.KEY_W, "x": uinput.KEY_X,
+        "y": uinput.KEY_Y, "z": uinput.KEY_Z,
+    }
+
+    def __init__(self):
+        if not os.path.exists(self._RETROARCH_CFG_FILE):
+            raise FileNotFoundError("retroarch config does not exist: " + self._RETROARCH_CFG_FILE)
+
+        self.MAPPING = {}
+        with open(self._RETROARCH_CFG_FILE) as f:
+            for line in f:
+                match = self._INPUT_PLAYER1_RE.match(line)
+                if match:
+                    r_key = match.group(1)
+                    r_mapped = match.group(3)
+                    cec_key = self._RETROARCH_TO_CEC_KEYMAP.get(r_key)
+                    mapped_key = self._RETROARCH_TO_UINTPUT_KEYMAP.get(match.group(3))
+                    if cec_key is not None and mapped_key is not None:
+                        self.MAPPING[cec_key.key] = Key(mapped_key, cec_key.multi_press)
+                    else:
+                        logging.debug("message='unable to map retroarch key', key=%s, mapped=%s", r_key, r_mapped)
 
 
 class CECDaemon(object):
@@ -161,15 +238,16 @@ class CECDaemon(object):
     def _keypress_handler(self, cec_code, duration):
         logging.debug("message='received key event', cec_code=%d, duration=%d", cec_code, duration)
         key = self._bindings.map_to_key(cec_code)
-        if key is not None and (self._button_repeat_rate_ms != 0 or duration == 0) and (
-                key.multi_press or key != self._last_key):
+        if key is None:
+            logging.debug("message='no binding for key', cec_code=%d", cec_code)
+        elif (self._button_repeat_rate_ms != 0 or duration == 0) and (key.multi_press or key != self._last_key):
             # Repeat rate set to 0 is a special case:
             # A single click produces 2 entries, one with 0 duration and another with duration > 0.
             # Long clicks produce multiple 0 duration entries.
             # When repeat rate is set, short clicks always have duration 0 and long clicks produce
             # events at the set rate with the duration starting from 0 and increasing until the button is released.
             self._keyboard.emit_click(key.key)
-            self._last_key = key
+        self._last_key = key
 
     def _keyboard_init(self):
         if self._keyboard is None:
@@ -229,7 +307,7 @@ class CECDaemon(object):
 
 
 def main():
-    bindings = OrderedDict(default=DefaultBindings)
+    bindings = OrderedDict(default=DefaultBindings, retropie=RetropieBindings)
     parser = argparse.ArgumentParser(
         description="Tool for translating CEC codes into key presses, allowing to control the PC through the TV.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
