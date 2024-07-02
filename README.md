@@ -26,6 +26,14 @@ A tool for translating CEC codes into key presses, allowing to control the PC th
 
 ## Build
 
+Make sure `debhelper` is installed:
+
+```shell
+sudo apt install debhelper
+```
+
+Then, simply run the below command in the project root:
+
 ```shell
 dpkg-buildpackage -b
 ```
