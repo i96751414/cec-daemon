@@ -210,7 +210,7 @@ class RetropieBindings(Bindings):
                     r_key = match.group(1)
                     r_mapped = match.group(3)
                     cec_key = self._RETROARCH_TO_CEC_KEYMAP.get(r_key)
-                    mapped_key = self._RETROARCH_TO_UINTPUT_KEYMAP.get(match.group(3))
+                    mapped_key = self._RETROARCH_TO_UINTPUT_KEYMAP.get(r_mapped)
                     if cec_key is not None and mapped_key is not None:
                         self.MAPPING[cec_key.key] = Key(mapped_key, cec_key.multi_press)
                     else:
