@@ -37,3 +37,29 @@ Then, simply run the below command in the project root:
 ```shell
 dpkg-buildpackage -b
 ```
+
+## Disable CEC service for specific applications
+
+Some applications (for instance, Kodi) have their dedicated CEC service, as such one should disable this service
+before launching the said applications.
+
+To do so, one can wrap the entrypoint of the application as shown below:
+
+```shell
+# Check for CEC service and disable it if its running
+if systemctl is-active --quiet cec.service; then
+  should_start_cec=true
+  sudo systemctl stop cec.service
+else
+  should_start_cec=false
+fi
+
+# Application launch code goes here
+/app/entrypoint $
+app_pid=$!
+wait "${app_pid}"
+return_code=$?
+
+# Enable CEC service again if it was previously disabled
+[ "${should_start_cec}" = true ] && sudo systemctl start cec.service
+```
