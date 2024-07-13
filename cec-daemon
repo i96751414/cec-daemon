@@ -278,6 +278,8 @@ class CECDaemon(object):
             logging.debug("message='starting CEC daemon'")
             cec_adapter.Open(adapters[0].strComName)
             self._cec_adapter = cec_adapter
+            # Set this instance as active source
+            cec_adapter.SetActiveSource()
         else:
             logging.warning("message='CEC daemon already started'")
 
