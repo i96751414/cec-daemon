@@ -219,7 +219,7 @@ class RetropieBindings(Bindings):
 
 class CECDaemon(object):
     def __init__(self, bindings=DefaultBindings(), button_repeat_rate_ms=0, button_release_delay_ms=0,
-                 double_tap_timeout_ms=200):
+                 double_tap_timeout_ms=200, disable_activate_source="if_tv_off"):
         self._lock = Lock()
         self._cec_config = cec.libcec_configuration()
         self._cec_config.strDeviceName = "pyLibCec"
@@ -233,6 +233,7 @@ class CECDaemon(object):
         self._cec_adapter = None
         self._keyboard = None
         self._bindings = bindings
+        self._disable_activate_source = disable_activate_source
         self._last_key = None
 
     def _keypress_handler(self, cec_code, duration):
@@ -278,8 +279,11 @@ class CECDaemon(object):
             logging.debug("message='starting CEC daemon'")
             cec_adapter.Open(adapters[0].strComName)
             self._cec_adapter = cec_adapter
-            # Set this instance as active source
-            cec_adapter.SetActiveSource()
+            if not self._disable_activate_source or self._disable_activate_source == "never" or (
+                    self._disable_activate_source == "if_tv_off" and
+                    cec_adapter.GetDevicePowerStatus(cec.CECDEVICE_TV) == cec.CEC_POWER_STATUS_ON):
+                logging.debug("message='Setting instance as active source'")
+                cec_adapter.SetActiveSource()
         else:
             logging.warning("message='CEC daemon already started'")
 
@@ -317,6 +321,8 @@ def main():
     parser.add_argument("--button-repeat-rate", type=int, default=0, help="Button repeat rate (ms)")
     parser.add_argument("--button-release-delay", type=int, default=0, help="Button release delay (ms)")
     parser.add_argument("--double-tap-timeout", type=int, default=200, help="Double tap timeout (ms)")
+    parser.add_argument("--disable-activate-source", type=str, default="if_tv_off",
+                        choices=("never", "always", "if_tv_off"), help="Disable activate source")
 
     args = parser.parse_args()
     logging.basicConfig(
@@ -334,7 +340,8 @@ def main():
     with CECDaemon(bindings=bindings[args.bindings](),
                    button_repeat_rate_ms=args.button_repeat_rate,
                    button_release_delay_ms=args.button_release_delay,
-                   double_tap_timeout_ms=args.double_tap_timeout):
+                   double_tap_timeout_ms=args.double_tap_timeout,
+                   disable_activate_source=args.disable_activate_source):
         shutdown.wait()
 
 
