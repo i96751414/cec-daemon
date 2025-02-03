@@ -55,11 +55,13 @@ else
 fi
 
 # Application launch code goes here
-/app/entrypoint $
+/app/entrypoint &
 app_pid=$!
 wait "${app_pid}"
 return_code=$?
 
 # Enable CEC service again if it was previously disabled
-[ "${should_start_cec}" = true ] && sudo systemctl start cec.service
+if [ "${should_start_cec}" = true ]; then
+  sudo systemctl start cec.service
+fi
 ```
